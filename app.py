@@ -9,19 +9,18 @@ import urllib.parse
 from datetime import datetime
 
 # --- 1. CONFIGURATION & INITIALIZATION ---
-# Changes the browser tab icon to icon.jpg
+# Fixed to point to your icon.png file
 st.set_page_config(
     page_title="AI Gmail Summarizer", 
-    page_icon="icon.jpg", 
+    page_icon="icon.png", 
     layout="centered"
 )
 
-# Render your email icon graphic cleanly right onto the main dashboard header
+# Fixed to point to your logo.png file
 try:
-    st.image("logo.jpg", width=160)
+    st.image("logo.png", width=160)
 except Exception:
-    # Warning with simplified asset verification
-    st.warning("⚠️ Header image not found. Ensure 'logo.jpg' is uploaded to your GitHub repository.")
+    st.warning("⚠️ Header image not found. Ensure 'logo.png' is uploaded to your GitHub repository.")
 
 st.title("📧 Personal AI Email Summarizer")
 
