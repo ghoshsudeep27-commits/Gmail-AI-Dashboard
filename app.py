@@ -17,7 +17,7 @@ else:
 
 # --- 2. SELF-REFRESHING REST FETCH ---
 def fetch_unread_emails_fast():
-    """Hits Gmail REST API endpoints using an AuthorizedSession that auto-refreshes expired tokens."""
+    """Hits Gmail REST API endpoints using an AuthorizedSession."""
     if "google_credentials" not in st.secrets:
         st.error("Missing [google_credentials] block in Streamlit Secrets!")
         st.stop()
@@ -25,15 +25,12 @@ def fetch_unread_emails_fast():
     secret_data = dict(st.secrets["google_credentials"])
     
     try:
-        # Load credentials and bind them to an auto-refreshing HTTP session
         creds = Credentials.from_authorized_user_info(secret_data, SCOPES)
         authed_session = AuthorizedSession(creds)
         
-        # 1. Fetch message list (Fast index query)
         list_url = "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=is:unread&maxResults=5"
         list_resp = authed_session.get(list_url).json()
         
-        # Check if Google returned an actual API error (like an invalid/expired token configuration)
         if "error" in list_resp:
             st.error(f"Gmail API Error: {list_resp['error'].get('message')}")
             st.stop()
@@ -44,7 +41,6 @@ def fetch_unread_emails_fast():
             return None
 
         email_bundle = ""
-        # 2. Fetch minimal metadata for each message
         for i, msg in enumerate(messages, 1):
             msg_id = msg["id"]
             detail_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}?format=minimal"
@@ -61,18 +57,21 @@ def fetch_unread_emails_fast():
 
 # --- 3. DASHBOARD LOGIC ---
 if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
+    # This placeholder container forces Streamlit to clear out old text logs
+    output_container = st.container()
+    
     with st.spinner("Instant Fetching via Gmail REST..."):
         email_bundle = fetch_unread_emails_fast()
         
         if not email_bundle:
-            st.success("🎉 Hooray! Your inbox is clean. No unread emails found.")
+            output_container.success("🎉 Hooray! Your inbox is clean. No unread emails found.")
         else:
-            st.subheader("Processing email snippets...")
+            output_container.subheader("Processing email snippets...")
             
-            # 🤖 SINGLE AI CALL
             with st.spinner("AI is compiling your summary..."):
                 try:
-                    model = genai.GenerativeModel('gemini-flash-latest')
+                    # Swapping to the modern 2.5 flagship for better quota handling
+                    model = genai.GenerativeModel('gemini-2.5-flash')
                     
                     bulk_prompt = f"""
                     You are an elite executive assistant. Read through this batch of recent email snippets and provide a clean, scannable overview. 
@@ -83,11 +82,11 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
                     """
                     
                     response = model.generate_content(bulk_prompt)
-                    st.write("---")
-                    st.markdown(response.text)
+                    output_container.write("---")
+                    output_container.markdown(response.text)
                     
                 except Exception as ai_err:
                     if "429" in str(ai_err):
-                        st.warning("⚠️ **Google Free Tier Cooldown:** We hit the 5 requests-per-minute limit. Please wait 15-20 seconds and tap refresh again!")
+                        output_container.warning("⚠️ **Google Free Tier Cooldown:** We hit the speed limit. Please wait 15 seconds and tap refresh again!")
                     else:
-                        st.error(f"AI Generation Error: {ai_err}")
+                        output_container.error(f"AI Generation Error: {ai_err}")
