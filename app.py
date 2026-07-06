@@ -1,13 +1,10 @@
 import streamlit as st
 import google.generativeai as genai
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
+import requests
 
 # --- 1. CONFIGURATION & INITIALIZATION ---
 st.set_page_config(page_title="AI Gmail Summarizer", page_icon="📧", layout="centered")
 st.title("📧 Personal AI Email Summarizer")
-
-SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
 if "GEMINI_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -15,59 +12,50 @@ else:
     st.error("Missing GEMINI_API_KEY in Streamlit Secrets!")
     st.stop()
 
-# --- 2. PRE-AUTHORIZED GMAIL CONNECT ---
-def get_gmail_service():
-    """Builds the Gmail client directly using the pre-authorized cloud token."""
-    if "google_credentials" in st.secrets:
-        secret_data = dict(st.secrets["google_credentials"])
-        try:
-            creds = Credentials.from_authorized_user_info(secret_data, SCOPES)
-            # static_discovery=True prevents downloading heavy API descriptions on startup
-            return build('gmail', 'v1', credentials=creds, static_discovery=True)
-        except Exception as e:
-            st.error(f"Error parsing token credentials: {e}")
-            st.stop()
-    else:
+# --- 2. RAW HIGH-SPEED ENDPOINTS ---
+def fetch_unread_emails_fast():
+    """Hits Gmail REST API endpoints directly without using the heavy build() discovery client."""
+    if "google_credentials" not in st.secrets:
         st.error("Missing [google_credentials] block in Streamlit Secrets!")
         st.stop()
+        
+    secret_data = dict(st.secrets["google_credentials"])
+    access_token = secret_data.get("token")
+    
+    headers = {"Authorization": f"Bearer {access_token}"}
+    
+    # 1. Fetch message list (Fast index query)
+    list_url = "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=is:unread&maxResults=5"
+    list_resp = requests.get(list_url, headers=headers).json()
+    messages = list_resp.get("messages", [])
+    
+    if not messages:
+        return None
 
-# --- 3. BATCH APP LOGIC ---
+    email_bundle = ""
+    # 2. Fetch minimal metadata for each message
+    for i, msg in enumerate(messages, 1):
+        msg_id = msg["id"]
+        # format=minimal drops the huge HTML body payloads entirely, downloading only the raw snippet string
+        detail_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}?format=minimal"
+        detail_resp = requests.get(detail_url, headers=headers).json()
+        
+        snippet = detail_resp.get("snippet", "")
+        email_bundle += f"\n--- EMAIL #{i} ---\nCONTENT SNIPPET: {snippet}\n"
+        
+    return email_bundle
+
+# --- 3. DASHBOARD LOGIC ---
 if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
-    with st.spinner("Scanning inbox..."):
+    with st.spinner("Instant Fetching via Gmail REST..."):
         try:
-            service = get_gmail_service()
-            results = service.users().messages().list(userId='me', q='is:unread', maxResults=5).execute()
-            messages = results.get('messages', [])
+            email_bundle = fetch_unread_emails_fast()
             
-            if not messages:
+            if not email_bundle:
                 st.success("🎉 Hooray! Your inbox is clean. No unread emails found.")
             else:
-                st.subheader(f"Processing {len(messages)} unread messages...")
+                st.subheader("Processing email snippets...")
                 
-                email_contents = []
-
-                # Callback function to handle responses from the batch request
-                def batch_callback(request_id, response, exception):
-                    if exception is None:
-                        headers = response.get('payload', {}).get('headers', [])
-                        subject = next((h['value'] for h in headers if h['name'].lower() == 'subject'), "No Subject")
-                        sender = next((h['value'] for h in headers if h['name'].lower() == 'from'), "Unknown Sender")
-                        snippet = response.get('snippet', '')
-                        email_contents.append(f"FROM: {sender}\nSUBJECT: {subject}\nCONTENT SNIPPET: {snippet}\n")
-
-                # ⚡ NATIVE BATCH: Combine all HTTP requests into a single network pipeline
-                batch = service.new_batch_http_request(callback=batch_callback)
-                
-                for msg in messages:
-                    batch.add(service.users().messages().get(
-                        userId='me', id=msg['id'], format='metadata', metadataHeaders=['Subject', 'From']
-                    ))
-                
-                # Execute the entire bundle at once
-                batch.execute()
-
-                email_bundle = "\n".join([f"--- EMAIL #{i} ---\n{text}" for i, text in enumerate(email_contents, 1)])
-
                 # 🤖 SINGLE AI CALL
                 with st.spinner("AI is compiling your summary..."):
                     try:
