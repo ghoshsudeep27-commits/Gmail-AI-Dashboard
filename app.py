@@ -9,19 +9,15 @@ import urllib.parse
 from datetime import datetime
 
 # --- 1. CONFIGURATION & INITIALIZATION ---
-# Using your new file as the page favicon icon
-st.set_page_config(
-    page_title="AI Gmail Summarizer", 
-    page_icon="pngtree-colorful-image-of-an-email-icon-vector-png-image_15856264.jpg", 
-    layout="centered"
-)
+st.set_page_config(page_title="AI Gmail Summarizer", page_icon="📧", layout="centered")
 
-# Render your email icon cleanly right onto the main dashboard header
+# --- 🖼️ DASHBOARD GRAPHIC CONFIGURATION ---
+# Note: Ensure you upload your image file (e.g., 'logo.png') directly to your GitHub repository!
 try:
-    st.image("pngtree-colorful-image-of-an-email-icon-vector-png-image_15856264.jpg", width=160)
+    st.image("logo.png", width=180)
 except Exception:
-    # Safe backup fallback string if the file isn't uploaded or spelled differently on GitHub
-    st.warning("⚠️ Please upload 'pngtree-colorful-image-of-an-email-icon-vector-png-image_15856264.jpg' to GitHub.")
+    # Fallback to an online abstract mesh pattern if the local file isn't uploaded yet
+    st.image("https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=80", use_container_width=True)
 
 st.title("📧 Personal AI Email Summarizer")
 
@@ -143,7 +139,7 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
                     
                     response = model.generate_content(bulk_prompt)
                     
-                    # Clean out markdown code fences if wrapped by the LLM response
+                    # Clean out markdown wrappers if present
                     raw_text = response.text.strip().lstrip("```json").rstrip("```").strip()
                     emails_data = json.loads(raw_text)
                     
