@@ -42,7 +42,7 @@ def fetch_unread_emails_fast():
         creds = Credentials.from_authorized_user_info(secret_data, SCOPES)
         authed_session = AuthorizedSession(creds)
         
-        list_url = "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=is:unread&maxResults=5"
+        list_url = "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=is:unread&maxResults=10"
         list_resp = authed_session.get(list_url).json()
         
         if "error" in list_resp:
