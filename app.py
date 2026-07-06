@@ -4,6 +4,7 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import AuthorizedSession
 from collections import Counter
 import pandas as pd
+import json
 
 # --- 1. CONFIGURATION & INITIALIZATION ---
 st.set_page_config(page_title="AI Gmail Summarizer", page_icon="📧", layout="centered")
@@ -45,10 +46,8 @@ def fetch_unread_emails_fast():
         email_bundle = ""
         senders_list = []
         
-        # 2. Fetch minimal metadata for each message
         for i, msg in enumerate(messages, 1):
             msg_id = msg["id"]
-            # We use format=metadata here instead of minimal so we can pull the clean 'From' header for our chart
             detail_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}?format=metadata&metadataHeaders=From"
             detail_resp = authed_session.get(detail_url).json()
             
@@ -56,7 +55,6 @@ def fetch_unread_emails_fast():
             sender = next((h['value'] for h in headers if h['name'].lower() == 'from'), "Unknown Sender")
             snippet = detail_resp.get("snippet", "")
             
-            # Clean up sender string for the chart (extract name if it looks like "Name <email@com>")
             clean_sender = sender.split("<")[0].strip() if "<" in sender else sender
             senders_list.append(clean_sender)
             
@@ -73,44 +71,68 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
     output_container = st.container()
     
     with st.spinner("Instant Fetching via Gmail REST..."):
-        email_bundle, senders_list = fetch_unread_emails_fast()
+        result = fetch_unread_emails_fast()
         
-        if not email_bundle:
+        if not result:
             output_container.success("🎉 Hooray! Your inbox is clean. No unread emails found.")
         else:
-            # 📊 CHART CREATION SECTION
-            output_container.subheader("📈 Unread Inbox Breakdown")
+            email_bundle, senders_list = result
             
-            # Count frequencies and convert to a Pandas DataFrame for Streamlit charts
+            # 📊 CHART SECTION
+            output_container.subheader("📈 Unread Inbox Breakdown")
             sender_counts = Counter(senders_list)
             chart_data = pd.DataFrame({
                 'Sender': list(sender_counts.keys()),
                 'Count': list(sender_counts.values())
             }).set_index('Sender')
-            
-            # Display a clean, native horizontal bar chart
             output_container.bar_chart(chart_data, horizontal=True)
             
             output_container.write("---")
-            output_container.subheader("🤖 AI Executive Summaries")
+            output_container.subheader("🤖 AI Executive Summaries & Smart Replies")
             
-            with st.spinner("AI is compiling your summary..."):
+            with st.spinner("AI is analyzing text and writing responses..."):
                 try:
                     model = genai.GenerativeModel('gemini-2.5-flash')
                     
+                    # Force a structured JSON output format
                     bulk_prompt = f"""
-                    You are an elite executive assistant. Read through this batch of recent email snippets and provide a clean, scannable overview. 
-                    For each individual email, write a 1-sentence, bold actionable takeaway.
+                    You are an elite executive assistant. Read this batch of recent email snippets and compile an analysis.
+                    You MUST respond strictly with a valid JSON array of objects. Do not include markdown formatting or wrappers outside the raw JSON code block.
                     
-                    Here are the emails:
+                    Each object in the JSON array must have these exact keys:
+                    - "sender": The name of the sender
+                    - "summary": A 1-sentence, bold actionable takeaway
+                    - "reply_positive": A short, 1-2 sentence professional email reply saying yes, agreeing, or accepting.
+                    - "reply_negative": A short, 1-2 sentence polite professional email reply declining or pushing back.
+                    - "reply_info": A short, 1-2 sentence email reply asking for more context or a follow-up meeting.
+
+                    Here are the emails to analyze:
                     {email_bundle}
                     """
                     
                     response = model.generate_content(bulk_prompt)
-                    output_container.markdown(response.text)
                     
+                    # Strip out accidental markdown code fences if the model returns them
+                    raw_text = response.text.strip().lstrip("```json").rstrip("```").strip()
+                    emails_data = json.loads(raw_text)
+                    
+                    # 🚀 RENDER EACH EMAIL BLOCK
+                    for idx, item in enumerate(emails_data, 1):
+                        with output_container.expander(f"✉️ Email #{idx} from {item['sender']}", expanded=True):
+                            st.markdown(f"**Takeaway:** {item['summary']}")
+                            
+                            # Interactive tab components for cleaner UI separation
+                            tab1, tab2, tab3 = st.tabs(["👍 Accept/Yes", "👎 Decline/No", "🤔 Ask for Info"])
+                            
+                            with tab1:
+                                st.text_area("Copy reply:", value=item['reply_positive'], key=f"pos_{idx}", height=70)
+                            with tab2:
+                                st.text_area("Copy reply:", value=item['reply_negative'], key=f"neg_{idx}", height=70)
+                            with tab3:
+                                st.text_area("Copy reply:", value=item['reply_info'], key=f"info_{idx}", height=70)
+                                
                 except Exception as ai_err:
                     if "429" in str(ai_err):
                         output_container.warning("⚠️ **Google Free Tier Cooldown:** We hit the speed limit. Please wait 15 seconds and tap refresh again!")
                     else:
-                        output_container.error(f"AI Generation Error: {ai_err}")
+                        output_container.error(f"Error parsing AI responses: {ai_err}")
