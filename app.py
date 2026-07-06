@@ -3,6 +3,7 @@ import google.generativeai as genai
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 import concurrent.futures
+import time
 
 # --- 1. CONFIGURATION & INITIALIZATION ---
 st.set_page_config(page_title="AI Gmail Summarizer", page_icon="📧", layout="centered")
@@ -34,11 +35,9 @@ def get_gmail_service():
 def fetch_single_email_details(msg_id, secret_data):
     """Helper function to fetch an individual email. Runs inside a background thread."""
     try:
-        # Each background thread requires its own authenticated service instance
         creds = Credentials.from_authorized_user_info(secret_data, SCOPES)
         thread_service = build('gmail', 'v1', credentials=creds)
         
-        # Pull ONLY the snippet and necessary headers to save bandwidth
         message = thread_service.users().messages().get(
             userId='me', id=msg_id, format='metadata', metadataHeaders=['Subject', 'From']
         ).execute()
@@ -57,7 +56,6 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
     with st.spinner("Scanning inbox metadata..."):
         try:
             service = get_gmail_service()
-            # Fetch up to 5 unread message IDs
             results = service.users().messages().list(userId='me', q='is:unread', maxResults=5).execute()
             messages = results.get('messages', [])
             
@@ -66,37 +64,40 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
             else:
                 st.subheader(f"Analyzing {len(messages)} unread messages simultaneously...")
                 
-                # ⚡ PARALLEL FETCH STEP: Download all message contents at the exact same time
                 secret_data = dict(st.secrets["google_credentials"])
                 email_contents = []
                 
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    # Map the fetch function across all message IDs in parallel
                     futures = [executor.submit(fetch_single_email_details, msg['id'], secret_data) for msg in messages]
                     for idx, future in enumerate(concurrent.futures.as_completed(futures), 1):
                         result_text = future.result()
                         if result_text:
                             email_contents.append(f"\n--- EMAIL #{idx} ---\n{result_text}")
 
-                # Bundle the results together
                 email_bundle = "".join(email_contents)
 
-                # 🤖 SINGLE AI CALL: Send the entire bundle to Gemini
+                # 🤖 SINGLE AI CALL WITH GRACEFUL LIMIT CATCHER
                 with st.spinner("AI is compiling your summary..."):
-                    model = genai.GenerativeModel('gemini-flash-latest')
-                    
-                    bulk_prompt = f"""
-                    You are an elite executive assistant. Read through this batch of recent email snippets and provide a clean, scannable overview. 
-                    For each individual email, write a 1-sentence, bold actionable takeaway.
-                    
-                    Here are the emails:
-                    {email_bundle}
-                    """
-                    
-                    response = model.generate_content(bulk_prompt)
-                    
-                    st.write("---")
-                    st.markdown(response.text)
+                    try:
+                        model = genai.GenerativeModel('gemini-flash-latest')
+                        
+                        bulk_prompt = f"""
+                        You are an elite executive assistant. Read through this batch of recent email snippets and provide a clean, scannable overview. 
+                        For each individual email, write a 1-sentence, bold actionable takeaway.
+                        
+                        Here are the emails:
+                        {email_bundle}
+                        """
+                        
+                        response = model.generate_content(bulk_prompt)
+                        st.write("---")
+                        st.markdown(response.text)
+                        
+                    except Exception as ai_err:
+                        if "429" in str(ai_err):
+                            st.warning("⚠️ **Google Free Tier Cooldown:** We hit the 5 requests-per-minute limit. Please wait 15-20 seconds and tap refresh again!")
+                        else:
+                            st.error(f"AI Generation Error: {ai_err}")
                         
         except Exception as e:
             st.error(f"An unexpected connection error occurred: {e}")
