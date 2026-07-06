@@ -94,7 +94,7 @@ def generate_google_calendar_url(title, date_str, details=""):
 
 # --- 3. CONTROL PANEL ---
 st.sidebar.header("⚙️ Token Management")
-# Let's you fetch fewer emails to respect free-tier token payloads
+# Allows choosing fewer emails to reduce token usage
 email_limit = st.sidebar.slider("Number of emails to fetch", min_value=1, max_value=5, value=3)
 
 if st.button("🔄 Fetch & Analyze Unread Emails", type="primary"):
@@ -144,7 +144,7 @@ if st.button("🔄 Fetch & Analyze Unread Emails", type="primary"):
                             time.sleep(backoff_delay)
                             backoff_delay *= 2
                         else:
-                            st.error("❌ Google Daily Limit Hit (20/20 requests). Switch your Google AI Studio key to Pay-As-You-Go to run un-limited requests!")
+                            st.error("❌ Google Daily Limit Hit (20/20 requests). Switch your Google AI Studio key to Pay-As-You-Go to run unlimited requests!")
                             st.stop()
                     else:
                         st.error(f"Error communicating with Gemini: {ai_err}")
@@ -165,7 +165,8 @@ if st.session_state.cached_chart is not None:
 
 if st.session_state.cached_analysis is not None:
     st.subheader("🤖 AI Executive Summaries & Actions")
-    for idx, item in enumerate(st.session_state.session_state.cached_analysis, 1):
+    # Fixed the double session_state layout bug here
+    for idx, item in enumerate(st.session_state.cached_analysis, 1):
         with st.expander(f"✉️ Email #{idx} from {item['sender']}", expanded=True):
             st.markdown(f"**Takeaway:** {item['summary']}")
             
