@@ -9,17 +9,19 @@ import urllib.parse
 from datetime import datetime
 
 # --- 1. CONFIGURATION & INITIALIZATION ---
+# Changes the browser tab icon to icon.jpg
 st.set_page_config(
     page_title="AI Gmail Summarizer", 
     page_icon="icon.jpg", 
     layout="centered"
 )
 
-# Render logo header
+# Render your email icon graphic cleanly right onto the main dashboard header
 try:
-    st.image("pngtree-colorful-image-of-an-email-icon-vector-png-image_15856264.jpg", width=160)
+    st.image("logo.jpg", width=160)
 except Exception:
-    st.warning("⚠️ Header image not found. Ensure 'pngtree-colorful-image-of-an-email-icon-vector-png-image_15856264.jpg' is uploaded.")
+    # Warning with simplified asset verification
+    st.warning("⚠️ Header image not found. Ensure 'logo.jpg' is uploaded to your GitHub repository.")
 
 st.title("📧 Personal AI Email Summarizer")
 
@@ -33,6 +35,7 @@ else:
 
 # --- 2. SELF-REFRESHING REST FETCH ---
 def fetch_unread_emails_fast():
+    """Hits Gmail REST API endpoints using an AuthorizedSession."""
     if "google_credentials" not in st.secrets:
         st.error("Missing [google_credentials] block in Streamlit Secrets!")
         st.stop()
@@ -79,10 +82,17 @@ def fetch_unread_emails_fast():
         st.stop()
 
 def generate_google_calendar_url(title, date_str, details=""):
+    """Creates a raw template link to generate calendar items on click."""
     base_url = "https://calendar.google.com/calendar/render?action=TEMPLATE"
-    query_params = {"text": title, "details": details}
+    
+    query_params = {
+        "text": title,
+        "details": details,
+    }
+    
     if date_str and len(date_str) >= 8:
         query_params["dates"] = f"{date_str}/{date_str}"
+        
     return f"{base_url}&{urllib.parse.urlencode(query_params)}"
 
 # --- 3. DASHBOARD LOGIC ---
@@ -97,6 +107,7 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
         else:
             email_bundle, senders_list = result
             
+            # 📊 CHART SECTION
             output_container.subheader("📈 Unread Inbox Breakdown")
             sender_counts = Counter(senders_list)
             chart_data = pd.DataFrame({
@@ -125,20 +136,24 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
                     1. A proper professional greeting targeting the sender's name if discernable.
                     2. An explicit acknowledgment of the specific details present in their email snippet.
                     3. A clear action step, decision, or follow-up path.
-                    4. A professional sign-off placeholder (e.g., "Best regards,\n[Your Name]").
+                    4. A professional sign-off placeholder (e.g., "Best regards,\\n[Your Name]").
 
                     Here are the emails to analyze:
                     {email_bundle}
                     """
                     
                     response = model.generate_content(bulk_prompt)
+                    
+                    # Clean out markdown code fences if wrapped by the LLM response
                     raw_text = response.text.strip().lstrip("```json").rstrip("```").strip()
                     emails_data = json.loads(raw_text)
                     
+                    # 🚀 RENDER EACH EMAIL BLOCK
                     for idx, item in enumerate(emails_data, 1):
                         with output_container.expander(f"✉️ Email #{idx} from {item['sender']}", expanded=True):
                             st.markdown(f"**Takeaway:** {item['summary']}")
                             
+                            # 📅 EVENT HANDLING
                             if item.get("has_event") and item.get("event_date"):
                                 try:
                                     parsed_date = datetime.strptime(item["event_date"], "%Y%m%d").strftime("%b %d, %Y")
@@ -152,9 +167,9 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
                                 except Exception:
                                     pass
                             
+                            # Interactive Tab System for Detailed Draft Responses
                             tab1, tab2, tab3 = st.tabs(["👍 Detailed Accept/Yes", "👎 Detailed Decline/No", "🤔 Detailed Ask for Info"])
                             
-                            # Increased text box height to accommodate the beautiful new multi-line responses
                             with tab1:
                                 st.text_area("Copy detailed reply:", value=item['reply_positive'], key=f"pos_{idx}", height=160)
                             with tab2:
@@ -164,6 +179,6 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
                                 
                 except Exception as ai_err:
                     if "429" in str(ai_err):
-                        output_container.warning("⚠️ **Google Free Tier Cooldown:** Please wait 15 seconds and tap refresh again!")
+                        output_container.warning("⚠️ **Google Free Tier Cooldown:** We hit the speed limit. Please wait 15 seconds and tap refresh again!")
                     else:
                         output_container.error(f"Error parsing AI responses: {ai_err}")
