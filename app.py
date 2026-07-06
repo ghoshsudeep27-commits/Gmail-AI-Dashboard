@@ -67,7 +67,7 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
                     
                     # Send to Gemini for custom summary
                     with st.spinner("AI is reading..."):
-                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        model = genai.GenerativeModel('gemini-3.5-flash')
                         prompt = f"Provide a brief, 2-sentence actionable summary of this email snippet: '{snippet}'"
                         response = model.generate_content(prompt)
                         st.info(f"🤖 **AI Summary:** {response.text}")
