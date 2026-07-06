@@ -5,6 +5,8 @@ from google.auth.transport.requests import AuthorizedSession
 from collections import Counter
 import pandas as pd
 import json
+import urllib.parse
+from datetime import datetime
 
 # --- 1. CONFIGURATION & INITIALIZATION ---
 st.set_page_config(page_title="AI Gmail Summarizer", page_icon="📧", layout="centered")
@@ -18,7 +20,7 @@ else:
     st.error("Missing GEMINI_API_KEY in Streamlit Secrets!")
     st.stop()
 
-# --- 2. SELF-REFRESHING REST FETCH ---
+# --- 2. HELPER FUNCTIONS ---
 def fetch_unread_emails_fast():
     """Hits Gmail REST API endpoints using an AuthorizedSession."""
     if "google_credentials" not in st.secrets:
@@ -66,6 +68,22 @@ def fetch_unread_emails_fast():
         st.error(f"Authentication or Connection error: {e}")
         st.stop()
 
+def generate_google_calendar_url(title, date_str, details=""):
+    """Creates a raw template link to generate calendar items on click."""
+    base_url = "https://calendar.google.com/calendar/render?action=TEMPLATE"
+    
+    # Clean and parse strings to prevent special character breakages
+    query_params = {
+        "text": title,
+        "details": details,
+    }
+    
+    # If the AI extracted a valid date format, map it. Otherwise, drop into 'anytime' format
+    if date_str and len(date_str) >= 8:
+        query_params["dates"] = f"{date_str}/{date_str}"
+        
+    return f"{base_url}&{urllib.parse.urlencode(query_params)}"
+
 # --- 3. DASHBOARD LOGIC ---
 if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
     output_container = st.container()
@@ -88,23 +106,28 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
             output_container.bar_chart(chart_data, horizontal=True)
             
             output_container.write("---")
-            output_container.subheader("🤖 AI Executive Summaries & Smart Replies")
+            output_container.subheader("🤖 AI Executive Summaries & Actions")
             
-            with st.spinner("AI is analyzing text and writing responses..."):
+            with st.spinner("AI is analyzing timeline events..."):
                 try:
                     model = genai.GenerativeModel('gemini-2.5-flash')
                     
-                    # Force a structured JSON output format
+                    # Provide explicit reference context to current day
+                    current_context_time = "20260706" 
+                    
                     bulk_prompt = f"""
-                    You are an elite executive assistant. Read this batch of recent email snippets and compile an analysis.
+                    You are an elite executive assistant. Read this batch of email snippets and output an analysis block.
                     You MUST respond strictly with a valid JSON array of objects. Do not include markdown formatting or wrappers outside the raw JSON code block.
                     
                     Each object in the JSON array must have these exact keys:
                     - "sender": The name of the sender
                     - "summary": A 1-sentence, bold actionable takeaway
-                    - "reply_positive": A short, 1-2 sentence professional email reply saying yes, agreeing, or accepting.
-                    - "reply_negative": A short, 1-2 sentence polite professional email reply declining or pushing back.
-                    - "reply_info": A short, 1-2 sentence email reply asking for more context or a follow-up meeting.
+                    - "has_event": true if the snippet mentions a specific meeting, deadline, date, invitation, or event. Otherwise false.
+                    - "event_title": Give a short title for this event (e.g. "Meeting with John"). If none, use empty string "".
+                    - "event_date": If an event/deadline is found, convert it to YYYYMMDD format. Assume the current year is 2026. If none, use empty string "".
+                    - "reply_positive": A short professional email reply accepting or agreeing.
+                    - "reply_negative": A short professional email reply declining.
+                    - "reply_info": A short professional email reply asking for more details.
 
                     Here are the emails to analyze:
                     {email_bundle}
@@ -112,7 +135,7 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
                     
                     response = model.generate_content(bulk_prompt)
                     
-                    # Strip out accidental markdown code fences if the model returns them
+                    # Strip out accidental markdown code fences if present
                     raw_text = response.text.strip().lstrip("```json").rstrip("```").strip()
                     emails_data = json.loads(raw_text)
                     
@@ -121,7 +144,21 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
                         with output_container.expander(f"✉️ Email #{idx} from {item['sender']}", expanded=True):
                             st.markdown(f"**Takeaway:** {item['summary']}")
                             
-                            # Interactive tab components for cleaner UI separation
+                            # 📅 DYNAMIC EVENT CAPTURE ELEMENT
+                            if item.get("has_event") and item.get("event_date"):
+                                try:
+                                    parsed_date = datetime.strptime(item["event_date"], "%Y%m%d").strftime("%b %d, %Y")
+                                    cal_url = generate_google_calendar_url(
+                                        title=item.get("event_title", "Inbox Follow-Up"),
+                                        date_str=item["event_date"],
+                                        details=f"Generated from email via AI Dashboard. Summary: {item['summary']}"
+                                    )
+                                    st.info(f"📆 **Event Detected:** *{item['event_title']}* set for **{parsed_date}**")
+                                    st.link_button("📅 Add to Google Calendar", cal_url)
+                                except Exception:
+                                    pass
+                            
+                            # Interactive reply tabs
                             tab1, tab2, tab3 = st.tabs(["👍 Accept/Yes", "👎 Decline/No", "🤔 Ask for Info"])
                             
                             with tab1:
