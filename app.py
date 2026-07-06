@@ -2,6 +2,8 @@ import streamlit as st
 import google.generativeai as genai
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import AuthorizedSession
+from collections import Counter
+import pandas as pd
 
 # --- 1. CONFIGURATION & INITIALIZATION ---
 st.set_page_config(page_title="AI Gmail Summarizer", page_icon="📧", layout="centered")
@@ -38,18 +40,29 @@ def fetch_unread_emails_fast():
         messages = list_resp.get("messages", [])
         
         if not messages:
-            return None
+            return None, None
 
         email_bundle = ""
+        senders_list = []
+        
+        # 2. Fetch minimal metadata for each message
         for i, msg in enumerate(messages, 1):
             msg_id = msg["id"]
-            detail_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}?format=minimal"
+            # We use format=metadata here instead of minimal so we can pull the clean 'From' header for our chart
+            detail_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}?format=metadata&metadataHeaders=From"
             detail_resp = authed_session.get(detail_url).json()
             
+            headers = detail_resp.get('payload', {}).get('headers', [])
+            sender = next((h['value'] for h in headers if h['name'].lower() == 'from'), "Unknown Sender")
             snippet = detail_resp.get("snippet", "")
-            email_bundle += f"\n--- EMAIL #{i} ---\nCONTENT SNIPPET: {snippet}\n"
             
-        return email_bundle
+            # Clean up sender string for the chart (extract name if it looks like "Name <email@com>")
+            clean_sender = sender.split("<")[0].strip() if "<" in sender else sender
+            senders_list.append(clean_sender)
+            
+            email_bundle += f"\n--- EMAIL #{i} ---\nFROM: {clean_sender}\nCONTENT SNIPPET: {snippet}\n"
+            
+        return email_bundle, senders_list
         
     except Exception as e:
         st.error(f"Authentication or Connection error: {e}")
@@ -57,20 +70,32 @@ def fetch_unread_emails_fast():
 
 # --- 3. DASHBOARD LOGIC ---
 if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
-    # This placeholder container forces Streamlit to clear out old text logs
     output_container = st.container()
     
     with st.spinner("Instant Fetching via Gmail REST..."):
-        email_bundle = fetch_unread_emails_fast()
+        email_bundle, senders_list = fetch_unread_emails_fast()
         
         if not email_bundle:
             output_container.success("🎉 Hooray! Your inbox is clean. No unread emails found.")
         else:
-            output_container.subheader("Processing email snippets...")
+            # 📊 CHART CREATION SECTION
+            output_container.subheader("📈 Unread Inbox Breakdown")
+            
+            # Count frequencies and convert to a Pandas DataFrame for Streamlit charts
+            sender_counts = Counter(senders_list)
+            chart_data = pd.DataFrame({
+                'Sender': list(sender_counts.keys()),
+                'Count': list(sender_counts.values())
+            }).set_index('Sender')
+            
+            # Display a clean, native horizontal bar chart
+            output_container.bar_chart(chart_data, horizontal=True)
+            
+            output_container.write("---")
+            output_container.subheader("🤖 AI Executive Summaries")
             
             with st.spinner("AI is compiling your summary..."):
                 try:
-                    # Swapping to the modern 2.5 flagship for better quota handling
                     model = genai.GenerativeModel('gemini-2.5-flash')
                     
                     bulk_prompt = f"""
@@ -82,7 +107,6 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
                     """
                     
                     response = model.generate_content(bulk_prompt)
-                    output_container.write("---")
                     output_container.markdown(response.text)
                     
                 except Exception as ai_err:
