@@ -10,6 +10,15 @@ from datetime import datetime
 
 # --- 1. CONFIGURATION & INITIALIZATION ---
 st.set_page_config(page_title="AI Gmail Summarizer", page_icon="📧", layout="centered")
+
+# --- 🖼️ DASHBOARD GRAPHIC CONFIGURATION ---
+# Note: Ensure you upload your image file (e.g., 'logo.png') directly to your GitHub repository!
+try:
+    st.image("logo.png", width=180)
+except Exception:
+    # Fallback to an online abstract mesh pattern if the local file isn't uploaded yet
+    st.image("https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=80", use_container_width=True)
+
 st.title("📧 Personal AI Email Summarizer")
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
@@ -20,7 +29,7 @@ else:
     st.error("Missing GEMINI_API_KEY in Streamlit Secrets!")
     st.stop()
 
-# --- 2. HELPER FUNCTIONS ---
+# --- 2. SELF-REFRESHING REST FETCH ---
 def fetch_unread_emails_fast():
     """Hits Gmail REST API endpoints using an AuthorizedSession."""
     if "google_credentials" not in st.secrets:
@@ -72,13 +81,11 @@ def generate_google_calendar_url(title, date_str, details=""):
     """Creates a raw template link to generate calendar items on click."""
     base_url = "https://calendar.google.com/calendar/render?action=TEMPLATE"
     
-    # Clean and parse strings to prevent special character breakages
     query_params = {
         "text": title,
         "details": details,
     }
     
-    # If the AI extracted a valid date format, map it. Otherwise, drop into 'anytime' format
     if date_str and len(date_str) >= 8:
         query_params["dates"] = f"{date_str}/{date_str}"
         
@@ -112,9 +119,6 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
                 try:
                     model = genai.GenerativeModel('gemini-2.5-flash')
                     
-                    # Provide explicit reference context to current day
-                    current_context_time = "20260706" 
-                    
                     bulk_prompt = f"""
                     You are an elite executive assistant. Read this batch of email snippets and output an analysis block.
                     You MUST respond strictly with a valid JSON array of objects. Do not include markdown formatting or wrappers outside the raw JSON code block.
@@ -123,7 +127,7 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
                     - "sender": The name of the sender
                     - "summary": A 1-sentence, bold actionable takeaway
                     - "has_event": true if the snippet mentions a specific meeting, deadline, date, invitation, or event. Otherwise false.
-                    - "event_title": Give a short title for this event (e.g. "Meeting with John"). If none, use empty string "".
+                    - "event_title": Give a short title for this event. If none, use empty string "".
                     - "event_date": If an event/deadline is found, convert it to YYYYMMDD format. Assume the current year is 2026. If none, use empty string "".
                     - "reply_positive": A short professional email reply accepting or agreeing.
                     - "reply_negative": A short professional email reply declining.
@@ -135,7 +139,7 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
                     
                     response = model.generate_content(bulk_prompt)
                     
-                    # Strip out accidental markdown code fences if present
+                    # Clean out markdown wrappers if present
                     raw_text = response.text.strip().lstrip("```json").rstrip("```").strip()
                     emails_data = json.loads(raw_text)
                     
@@ -144,7 +148,7 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
                         with output_container.expander(f"✉️ Email #{idx} from {item['sender']}", expanded=True):
                             st.markdown(f"**Takeaway:** {item['summary']}")
                             
-                            # 📅 DYNAMIC EVENT CAPTURE ELEMENT
+                            # 📅 EVENT HANDLING
                             if item.get("has_event") and item.get("event_date"):
                                 try:
                                     parsed_date = datetime.strptime(item["event_date"], "%Y%m%d").strftime("%b %d, %Y")
@@ -158,7 +162,7 @@ if st.button("🔄 Refresh / Fetch Unread Emails", type="primary"):
                                 except Exception:
                                     pass
                             
-                            # Interactive reply tabs
+                            # Interactive Tab System for Draft Responses
                             tab1, tab2, tab3 = st.tabs(["👍 Accept/Yes", "👎 Decline/No", "🤔 Ask for Info"])
                             
                             with tab1:
