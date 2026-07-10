@@ -94,7 +94,6 @@ def generate_google_calendar_url(title, date_str, details=""):
 
 # --- 3. CONTROL PANEL ---
 st.sidebar.header("⚙️ Token Management")
-# Allows choosing fewer emails to reduce token usage
 email_limit = st.sidebar.slider("Number of emails to fetch", min_value=1, max_value=5, value=3)
 
 if st.button("🔄 Fetch & Analyze Unread Emails", type="primary"):
@@ -123,7 +122,8 @@ if st.button("🔄 Fetch & Analyze Unread Emails", type="primary"):
             for attempt in range(max_retries):
                 try:
                     with st.spinner("AI drafting replies..." if attempt == 0 else f"⏳ Free Quota cooldown... Waiting {backoff_delay}s..."):
-                        model = genai.GenerativeModel('gemini-2.5-flash')
+                        # FIXED: Swapped to the current stable model line
+                        model = genai.GenerativeModel('gemini-3.5-flash')
                         bulk_prompt = f"""
                         You are an elite executive assistant. Read this batch of email snippets and output an analysis block.
                         You MUST respond strictly with a valid JSON array of objects. Do not include markdown formatting or wrappers outside the raw JSON code block.
@@ -165,7 +165,6 @@ if st.session_state.cached_chart is not None:
 
 if st.session_state.cached_analysis is not None:
     st.subheader("🤖 AI Executive Summaries & Actions")
-    # Fixed the double session_state layout bug here
     for idx, item in enumerate(st.session_state.cached_analysis, 1):
         with st.expander(f"✉️ Email #{idx} from {item['sender']}", expanded=True):
             st.markdown(f"**Takeaway:** {item['summary']}")
